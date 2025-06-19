@@ -7,7 +7,6 @@ This tool extracts 3D atomic coordinates and RGB color features of RNA base pair
 - Parses base pair annotation CSVs (e.g., DSSR)
 - Extracts atomic coordinates for paired residues
 - Assigns RGB colors to atoms using Jmol standards
-- Supports label normalization 
 - Organizes output by base pair type
 
 ## File Structure
@@ -23,9 +22,9 @@ rna_coord_extractor/
 │   └── color_code_atoms.py
 ├── data/
 │   └── jmolcolors.csv
-├── example.csv
+├── examples
 ├── requirements.txt
-└── README.md
+└── Readme.md
 ```
 
 ## Usage
