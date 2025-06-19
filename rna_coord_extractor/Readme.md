@@ -1,7 +1,6 @@
 # RNA Base Pair Coordinate Extractor
 
-This tool extracts 3D atomic coordinates and RGB color features of RNA base pairs from mmCIF structures using Biopython. It is designed for downstream machine learning pipelines such as those used in the [NoBIAS](https://github.com/cczhong/NoBIAS) framework.
-
+This tool extracts 3D atomic coordinates and RGB color features of RNA base pairs from mmCIF structures using Biopython.
 ## Features
 
 - Downloads RNA structures from the PDB
