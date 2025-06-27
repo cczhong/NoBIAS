@@ -12,7 +12,8 @@ from urllib.parse import urlparse
 FILE_URLS = [
     "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/cif.zip?download=true",
     "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/output_fr3.csv?download=true",
-    "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/base_pairs.zip?download=true"
+    "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/base_pairs.zip?download=true",
+    "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/resnet18_classifier_stable.pth?download=true"
 ]
 
 def download_file(url):
