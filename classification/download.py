@@ -6,9 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from urllib.parse import urlparse
 
-# --- List of files to download ---
-# You can add or remove URLs here.
-# Example URLs: a zip file and a single file.
 FILE_URLS = [
     "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/cif.zip?download=true",
     "https://huggingface.co/datasets/VatsaDev/BioD2/resolve/main/output_fr3.csv?download=true",
@@ -53,7 +50,6 @@ def unzip_and_cleanup(filepath):
     extract_dir = os.path.splitext(filepath)[0]
     
     with zipfile.ZipFile(filepath, 'r') as zip_ref:
-        # Get a list of all top-level members in the zip
         top_level_members = {member.split('/')[0] for member in zip_ref.namelist()}
         
         # Check if there is only one top-level directory inside
@@ -68,9 +64,7 @@ def unzip_and_cleanup(filepath):
             
             # The single root directory inside the temp directory
             single_root = os.path.join(temp_extract_dir, list(top_level_members)[0])
-            
-            # Move contents of the single root directory to the final destination
-            # and remove the now-empty root and temp directories.
+
             if os.path.exists(extract_dir):
                 shutil.rmtree(extract_dir) # Remove if it exists to avoid merging issues
             shutil.move(single_root, extract_dir)
