@@ -6,7 +6,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 # --- Configuration ---
-DISTANCE_MATRIX_FOLDER = "rna_center_distance_csvs"
+DISTANCE_MATRIX_FOLDER = "rna_center_distance_csvs_2"
 BASE_PAIRS_FOLDER = "base_pairs"
 GLOBAL_STACK_FILE = "output_fr3.csv"
 ANALYSIS_OUTPUT_FOLDER_ROOT = "threshold_analysis_structured_v2" # Root output folder
