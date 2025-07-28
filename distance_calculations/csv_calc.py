@@ -14,7 +14,7 @@ from Bio.PDB import MMCIFParser
 DISTANCE_MATRIX_FOLDER = "rna_center_distance_csvs_2"
 BASE_PAIRS_FOLDER = "base_pairs"
 STACKS_BY_MOL_FOLDER = "stacks_by_mol"
-CIF_FOLDER = "../cif"
+CIF_FOLDER = "cif"
 ANALYSIS_OUTPUT_FOLDER_ROOT = "threshold_analysis_structured_v10"  # Incremented version
 
 THRESHOLDS = [float(x) for x in range(1, 15)]
