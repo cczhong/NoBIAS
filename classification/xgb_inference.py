@@ -10,7 +10,7 @@ import argparse
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Geometric Feature Extraction (Copied from the data generation script) ---
+# --- Geometric Feature Extraction ---
 def get_base_plane_simple(base_residue):
     """Calculates the geometric center and normal vector of a base plane."""
     ring_atom_coords = [a.coord for a in base_residue if a.element in ('C', 'N') and a.name[0] in ('C', 'N')]
@@ -29,7 +29,7 @@ def get_base_plane_simple(base_residue):
 def extract_simple_features(res1, res2):
     """Extracts anchor distance and orientation angle for a pair of residues."""
     center1, normal1 = get_base_plane_simple(res1)
-    center2, _ = get_base_plane_simple(res2) # We only need the normal of the first base
+    center2, _ = get_base_plane_simple(res2)
 
     if center1 is None or center2 is None or normal1 is None:
         return None
@@ -38,7 +38,7 @@ def extract_simple_features(res1, res2):
 
     inter_anchor_vector = center2 - center1
     if np.allclose(inter_anchor_vector, 0):
-        return None # Same residue or overlapping centers
+        return None
 
     inter_anchor_vector_norm = inter_anchor_vector / np.linalg.norm(inter_anchor_vector)
     dot_prod = np.clip(np.dot(normal1, inter_anchor_vector_norm), -1.0, 1.0)
@@ -50,13 +50,17 @@ def extract_simple_features(res1, res2):
 # --- Main Inference Function ---
 def predict_interactions_in_cif(model_path, cif_path):
     """
-    Loads a CIF file and an XGBoost model, then predicts the interaction
-    type for every possible pair of RNA bases in the structure.
+    Loads a CIF file and an XGBoost model, then predicts RNA base interactions.
+
+    For NMR multi-model structures, each conformer is processed independently:
+      - Each model gets its own numeric index (matching BioPython model IDs: 0, 1, 2 ...)
+      - Each model writes its own CSV:  {structure_id}_m{idx}_predicted_interactions.csv
+      - A combined CSV across all models is always written: {structure_id}_predicted_interactions.csv
     """
     # 1. Load the trained XGBoost model
     try:
-        model = xgb.XGBClassifier()
-        model.load_model(model_path)
+        xgb_model = xgb.XGBClassifier()
+        xgb_model.load_model(model_path)
         logging.info(f"Successfully loaded XGBoost model from {model_path}")
     except (xgb.core.XGBoostError, IOError) as e:
         logging.error(f"Failed to load model from {model_path}. Error: {e}")
@@ -67,93 +71,113 @@ def predict_interactions_in_cif(model_path, cif_path):
         parser = PDB.MMCIFParser(QUIET=True)
         structure_id = os.path.splitext(os.path.basename(cif_path))[0]
         structure = parser.get_structure(structure_id, cif_path)
-        logging.info(f"Successfully loaded structure {structure_id} from {cif_path}")
+        logging.info(f"Successfully loaded structure '{structure_id}' from {cif_path}")
     except Exception as e:
-        logging.error(f"Failed to load or parse CIF file {cif_path}. Error: {e}")
+        logging.error(f"Failed to parse CIF file {cif_path}. Error: {e}")
         return
 
-    # 3. Collect all standard RNA residues from the structure
-    rna_residues = []
-    valid_resnames = ['A', 'C', 'G', 'U', 'I']
-    for model_obj in structure:
-        for chain in model_obj:
-            for residue in chain:
-                # Standard residues have a blank hetflag ' '
-                if residue.id[0] == ' ' and residue.get_resname().strip() in valid_resnames:
-                    rna_residues.append(residue)
-
-    num_residues = len(rna_residues)
-    if num_residues < 2:
-        logging.warning("Found fewer than 2 RNA residues. No pairs to analyze.")
-        return
-
-    logging.info(f"Found {num_residues} standard RNA residues. Analyzing all possible pairs...")
-
-    # 4. Generate all unique pairs and extract features
-    all_pairs_info = []
-    feature_vectors = []
-
-    # Use itertools.combinations to get all unique pairs efficiently
-    for res1, res2 in itertools.combinations(rna_residues, 2):
-        features = extract_simple_features(res1, res2)
-        if features:
-            feature_vectors.append(features)
-            # Store information to identify the pair later
-            all_pairs_info.append({
-                'chain1': res1.parent.id,
-                'resname1': res1.get_resname(),
-                'resid1': res1.id[1],
-                'chain2': res2.parent.id,
-                'resname2': res2.get_resname(),
-                'resid2': res2.id[1],
-            })
-
-    if not feature_vectors:
-        logging.error("Could not extract features for any residue pairs.")
-        return
-
-    # 5. Perform batch prediction
-    logging.info(f"Extracted features for {len(feature_vectors)} pairs. Predicting...")
-    X_pred = np.array(feature_vectors)
-    predictions = model.predict(X_pred)
-    # 0='interacting', 1='non-interacting'
+    valid_resnames = {'A', 'C', 'G', 'U', 'I'}
     class_map = {0: 'interacting', 1: 'non-interacting'}
-    predicted_labels = [class_map[p] for p in predictions]
 
-    # 6. Create and save the results DataFrame
-    results_df = pd.DataFrame(all_pairs_info)
-    results_df['predicted_interaction'] = predicted_labels
+    # 3. Report ensemble size
+    all_models = list(structure)
+    num_models = len(all_models)
+    is_nmr = num_models > 1
+    logging.info(
+        f"Structure '{structure_id}' has {num_models} model(s) — "
+        f"{'NMR ensemble, processing each conformer independently.' if is_nmr else 'single model.'}"
+    )
 
-    # Also add the feature values to the output for analysis
-    features_df = pd.DataFrame(X_pred, columns=["anchor_dist", "orientation_angle_deg"])
-    final_df = pd.concat([results_df, features_df], axis=1)
+    all_results = []  # collects per-model DataFrames for the combined output
 
-    # Filter to show only the interesting 'interacting' pairs
-    interacting_df = final_df[final_df['predicted_interaction'] == 'interacting'].copy()
+    # 4. Iterate model-first — each NMR conformer gets its own independent pass
+    for model_obj in all_models:
+        model_idx = model_obj.id  # BioPython assigns 0, 1, 2, … per conformer
 
-    # Save results to a CSV file
+        # Collect valid RNA residues within this model only
+        model_residues = [
+            residue
+            for chain in model_obj
+            for residue in chain
+            if residue.id[0] == ' ' and residue.get_resname().strip() in valid_resnames
+        ]
+
+        num_res = len(model_residues)
+        if num_res < 2:
+            logging.warning(f"Model {model_idx}: only {num_res} RNA residue(s) found — skipping.")
+            continue
+
+        total_pairs = num_res * (num_res - 1) // 2
+        logging.info(f"Model {model_idx}: {num_res} RNA residues → {total_pairs:,} candidate pairs.")
+
+        # Extract geometric features for every within-model pair
+        pairs_info = []
+        feature_vectors = []
+        for res1, res2 in itertools.combinations(model_residues, 2):
+            features = extract_simple_features(res1, res2)
+            if features:
+                feature_vectors.append(features)
+                pairs_info.append({
+                    'model_idx':  model_idx,
+                    'chain1':     res1.parent.id,
+                    'resname1':   res1.get_resname(),
+                    'resid1':     res1.id[1],
+                    'chain2':     res2.parent.id,
+                    'resname2':   res2.get_resname(),
+                    'resid2':     res2.id[1],
+                })
+
+        if not feature_vectors:
+            logging.warning(f"Model {model_idx}: no valid features extracted — skipping.")
+            continue
+
+        # Predict for this model only
+        X_pred = np.array(feature_vectors)
+        predictions = xgb_model.predict(X_pred)
+
+        results_df = pd.DataFrame(pairs_info)
+        results_df['predicted_interaction'] = [class_map[p] for p in predictions]
+        features_df = pd.DataFrame(X_pred, columns=["anchor_dist", "orientation_angle_deg"])
+        final_df = pd.concat([results_df, features_df], axis=1)
+        interacting_df = final_df[final_df['predicted_interaction'] == 'interacting'].copy()
+
+        logging.info(
+            f"Model {model_idx}: {len(interacting_df):,} interactions predicted "
+            f"(out of {len(feature_vectors):,} valid pairs)."
+        )
+
+        # Per-model CSV — only written for NMR ensembles with multiple conformers
+        if is_nmr:
+            per_model_file = f"{structure_id}_m{model_idx}_predicted_interactions.csv"
+            interacting_df.to_csv(per_model_file, index=False)
+            logging.info(f"Model {model_idx} results → {per_model_file}")
+
+        all_results.append(interacting_df)
+
+    # 5. Write combined CSV (always produced, across all models)
+    if not all_results:
+        logging.error("No interactions found in any model.")
+        return
+
+    combined_df = pd.concat(all_results, ignore_index=True)
     output_filename = f"{structure_id}_predicted_interactions.csv"
-    interacting_df.to_csv(output_filename, index=False)
-    logging.info(f"Analysis complete. Found {len(interacting_df)} predicted interactions.")
-    logging.info(f"Results saved to: {output_filename}")
+    combined_df.to_csv(output_filename, index=False)
+    logging.info(
+        f"Done. {len(combined_df):,} total interactions across {len(all_results)} model(s) → {output_filename}"
+    )
 
 
 if __name__ == '__main__':
-    # Setup command-line argument parser
-    parser = argparse.ArgumentParser(description="Predict all residue interactions in a CIF file using a trained XGBoost model.")
-    
-    # Required positional argument for the input file
-    parser.add_argument("cif_path", type=str, help="Path to the input CIF file to analyze.")
-    
-    # Optional argument for the model path, with a new default value
+    parser = argparse.ArgumentParser(
+        description="Predict RNA base interactions in a CIF file using a trained XGBoost model. "
+                    "NMR multi-model structures produce one CSV per conformer plus a combined CSV."
+    )
+    parser.add_argument("cif_path", type=str, help="Path to the input CIF / mmCIF file.")
     parser.add_argument(
         "--model-path",
         type=str,
         default="binary_interaction_classifier_xgb.json",
-        help="Path to the trained XGBoost model file (default: %(default)s)."
+        help="Path to the trained XGBoost model file (default: %(default)s).",
     )
-
     args = parser.parse_args()
-
-    # Call the main function with the parsed arguments
     predict_interactions_in_cif(args.model_path, args.cif_path)
