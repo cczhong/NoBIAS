@@ -48,7 +48,7 @@ def extract_simple_features(res1, res2):
     return [anchor_dist, orientation_angle_deg]
 
 # --- Main Inference Function ---
-def predict_interactions_in_cif(model_path, cif_path):
+def predict_interactions_in_cif(model_path, cif_path, num_models_to_process=None):
     """
     Loads a CIF file and an XGBoost model, then predicts RNA base interactions.
 
@@ -79,13 +79,19 @@ def predict_interactions_in_cif(model_path, cif_path):
     valid_resnames = {'A', 'C', 'G', 'U', 'I'}
     class_map = {0: 'interacting', 1: 'non-interacting'}
 
-    # 3. Report ensemble size
+    # 3. Report ensemble size and apply limit if requested
     all_models = list(structure)
+    total_found = len(all_models)
+    
+    if num_models_to_process and num_models_to_process > 0:
+        all_models = all_models[:num_models_to_process]
+        logging.info(f"Limit applied: processing first {len(all_models)} of {total_found} available models.")
+    
     num_models = len(all_models)
-    is_nmr = num_models > 1
+    is_nmr = total_found > 1
     logging.info(
-        f"Structure '{structure_id}' has {num_models} model(s) — "
-        f"{'NMR ensemble, processing each conformer independently.' if is_nmr else 'single model.'}"
+        f"Structure '{structure_id}' has {total_found} total model(s) — "
+        f"{'NMR ensemble.' if is_nmr else 'single model.'}"
     )
 
     all_results = []  # collects per-model DataFrames for the combined output
@@ -179,5 +185,12 @@ if __name__ == '__main__':
         default="binary_interaction_classifier_xgb.json",
         help="Path to the trained XGBoost model file (default: %(default)s).",
     )
+    parser.add_argument(
+        "-k", "--num-models",
+        type=int,
+        default=0,
+        help="Number of NMR models to process (default: 0, which means all models)."
+    )
+
     args = parser.parse_args()
-    predict_interactions_in_cif(args.model_path, args.cif_path)
+    predict_interactions_in_cif(args.model_path, args.cif_path, num_models_to_process=args.num_models)
