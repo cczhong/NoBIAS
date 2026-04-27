@@ -1,0 +1,19 @@
+# Model weights — large binary files, download via readme links
+*.pth
+*.json
+
+# But track the small v1 XGB model that's already committed
+!classification/binary_interaction_classifier_xgb.json
+
+# Test CIF files
+classification/nobias_cairo/test_cifs/
+
+# Generated pipeline output CSVs
+*_no_bias_anno.csv
+*_predicted_interactions.csv
+
+# Common Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env

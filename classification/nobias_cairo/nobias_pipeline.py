@@ -255,7 +255,13 @@ def run_pipeline(structure_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="High-performance RNA interaction analysis pipeline.")
     parser.add_argument("input_file", type=str, help="Path to input PDB or CIF file.")
+    parser.add_argument("--xgb-model", type=str, default=XGB_MODEL_PATH,
+                        help="Path to XGBoost model file (default: %(default)s).")
+    parser.add_argument("--resnet-model", type=str, default=RESNET_MODEL_PATH,
+                        help="Path to ResNet .pth weights file (default: %(default)s).")
     args = parser.parse_args()
+    XGB_MODEL_PATH = args.xgb_model
+    RESNET_MODEL_PATH = args.resnet_model
     if os.path.exists(args.input_file):
         run_pipeline(args.input_file)
     else:
